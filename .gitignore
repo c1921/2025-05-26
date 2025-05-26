@@ -1,0 +1,33 @@
+# Python虚拟环境
+.venv/
+venv/
+env/
+ENV/
+
+# Python缓存文件
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+*.egg
+
+# 日志文件
+*.log
+
+# 本地配置文件
+.env
+.env.local
+
+# IDE配置
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 操作系统文件
+.DS_Store
+Thumbs.db
+
+music/

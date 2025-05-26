@@ -1,0 +1,5 @@
+just-playback
+fastapi
+uvicorn
+python-multipart
+aiofiles
