@@ -1,12 +1,6 @@
 <template>
   <div class="music-player">
     
-    <!-- 上传区域 -->
-    <div class="upload-area">
-      <input type="file" ref="fileInput" @change="handleFileUpload" accept=".mp3,.wav,.ogg,.flac" />
-      <button @click="triggerFileInput" class="upload-btn">选择音乐文件</button>
-    </div>
-    
     <!-- 播放控制区域 -->
     <div class="player-controls" v-if="currentSong || status.current_song">
       <div class="song-info">
@@ -61,7 +55,7 @@
     <div class="playlist">
       <h2>播放列表</h2>
       <div v-if="songs.length === 0" class="empty-list">
-        暂无音乐，请上传
+        未找到音乐文件，请检查音乐库目录配置
       </div>
       <ul v-else>
         <li 
@@ -73,7 +67,6 @@
           <div class="song-item">
             <span class="song-name">{{ song.name }}</span>
             <span class="song-size">{{ (song.size).toFixed(2) }} MB</span>
-            <button @click.stop="deleteSong(song)" class="delete-btn">删除</button>
           </div>
         </li>
       </ul>
@@ -103,7 +96,6 @@ export default defineComponent({
     const currentSong = ref<Song | null>(null);
     const sliderPosition = ref(0);
     const volumeLevel = ref(1);
-    const fileInput = ref<HTMLInputElement | null>(null);
     const statusInterval = ref<number | null>(null);
     const isVolumeUserControlled = ref(false); // 标记音量是否被用户手动调整
     
@@ -138,7 +130,21 @@ export default defineComponent({
           
           // 找到当前播放的歌曲
           if (status.value.current_song) {
-            currentSong.value = songs.value.find(song => song.name === status.value.current_song) || null;
+            // 使用解码后的文件名进行比较
+            const songName = status.value.current_song;
+            currentSong.value = songs.value.find(song => song.name === songName) || null;
+            
+            // 如果找不到匹配的歌曲，可能是因为编码问题，则创建一个临时歌曲对象
+            if (!currentSong.value) {
+              console.log('找不到匹配的歌曲，创建临时歌曲对象:', songName);
+              currentSong.value = {
+                id: '', // 空字符串ID
+                name: songName,
+                path: '',
+                size: 0,
+                add_time: 0
+              };
+            }
           }
         }
       } catch (error) {
@@ -159,7 +165,7 @@ export default defineComponent({
     // 播放歌曲
     const playSong = async (song: Song) => {
       try {
-        await apiService.playSong(song.name);
+        await apiService.playSong(song.id);
         currentSong.value = song;
         await fetchStatus();
       } catch (error) {
@@ -265,54 +271,6 @@ export default defineComponent({
       }
     };
     
-    // 触发文件选择
-    const triggerFileInput = () => {
-      if (fileInput.value) {
-        fileInput.value.click();
-      }
-    };
-    
-    // 处理文件上传
-    const handleFileUpload = async (event: Event) => {
-      const target = event.target as HTMLInputElement;
-      const files = target.files;
-      
-      if (files && files.length > 0) {
-        const file = files[0];
-        
-        try {
-          await apiService.uploadSong(file);
-          await fetchSongs();
-          
-          // 清空文件输入框，允许重复上传同一文件
-          if (fileInput.value) {
-            fileInput.value.value = '';
-          }
-        } catch (error) {
-          console.error('上传歌曲失败:', error);
-        }
-      }
-    };
-    
-    // 删除歌曲
-    const deleteSong = async (song: Song) => {
-      if (confirm(`确定要删除歌曲 "${song.name}" 吗？`)) {
-        try {
-          await apiService.deleteSong(song.name);
-          await fetchSongs();
-          
-          // 如果删除的是当前播放的歌曲，更新状态
-          if (currentSong.value?.id === song.id) {
-            currentSong.value = null;
-          }
-          
-          await fetchStatus();
-        } catch (error) {
-          console.error('删除歌曲失败:', error);
-        }
-      }
-    };
-    
     // 格式化时间
     const formatTime = (seconds: number): string => {
       if (isNaN(seconds) || seconds === 0) return '00:00';
@@ -344,7 +302,6 @@ export default defineComponent({
       currentSong,
       sliderPosition,
       volumeLevel,
-      fileInput,
       playSong,
       handlePlayPause,
       stopPlayback,
@@ -355,9 +312,6 @@ export default defineComponent({
       handleVolumeStart,
       handleVolumeChange,
       handleLoop,
-      triggerFileInput,
-      handleFileUpload,
-      deleteSong,
       formatTime
     };
   }
@@ -383,30 +337,6 @@ h2 {
   border-bottom: 1px solid #eee;
   padding-bottom: 10px;
   margin-top: 30px;
-}
-
-.upload-area {
-  display: flex;
-  justify-content: center;
-  margin-bottom: 30px;
-}
-
-.upload-area input[type="file"] {
-  display: none;
-}
-
-.upload-btn {
-  background-color: #4CAF50;
-  color: white;
-  padding: 10px 20px;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 16px;
-}
-
-.upload-btn:hover {
-  background-color: #45a049;
 }
 
 .player-controls {
@@ -528,19 +458,6 @@ h2 {
   color: #777;
   margin-right: 10px;
   font-size: 14px;
-}
-
-.delete-btn {
-  background-color: #f44336;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  padding: 5px 10px;
-  cursor: pointer;
-}
-
-.delete-btn:hover {
-  background-color: #d32f2f;
 }
 
 .empty-list {

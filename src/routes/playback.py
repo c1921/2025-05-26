@@ -1,19 +1,24 @@
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Path
 from typing import Dict, Any
 
 from src.models.player import player
-from src.utils.file_utils import get_file_path, file_exists
+from src.utils.file_utils import get_file_path, file_exists, decode_filename, get_music_by_id
 
 router = APIRouter(prefix="/api")
 
-@router.post("/play/{filename}")
-async def play_song(filename: str, background_tasks: BackgroundTasks):
+@router.post("/play/{file_id}")
+async def play_song(file_id: str = Path(..., description="音乐文件ID或文件名"), background_tasks: BackgroundTasks = None):
     """播放指定歌曲"""
-    file_path = get_file_path(filename)
+    # 获取文件路径
+    file_path = get_file_path(file_id)
+    
+    # 获取音乐信息（如果是ID）
+    music_info = get_music_by_id(file_id)
+    song_name = music_info["name"] if music_info else decode_filename(file_id)
     
     # 检查文件是否存在
-    if not file_exists(filename):
-        raise HTTPException(status_code=404, detail="文件不存在")
+    if not file_exists(file_id):
+        raise HTTPException(status_code=404, detail=f"文件不存在: {song_name}")
     
     # 如果正在播放，先停止
     if player.active:
@@ -22,11 +27,11 @@ async def play_song(filename: str, background_tasks: BackgroundTasks):
     # 加载并播放文件
     player.load_file(file_path)
     player.play()
-    player.current_song = filename
+    player.current_song = song_name
     
     return {
         "status": "playing",
-        "song": filename,
+        "song": song_name,
         "duration": player.duration
     }
 
