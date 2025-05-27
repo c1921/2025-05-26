@@ -1,124 +1,43 @@
 <template>
   <div class="music-player">
-    <!-- 搜索栏 -->
-    <div class="search-bar">
-      <input 
-        type="text" 
-        v-model="searchQuery" 
-        placeholder="搜索歌曲、艺术家或专辑..." 
-        @keyup.enter="handleSearch"
-      />
-      <button class="search-btn" @click="handleSearch">搜索</button>
-      <button class="clear-btn" @click="clearSearch" v-if="isSearchMode">清除</button>
-    </div>
+    <!-- 搜索栏组件 -->
+    <SearchBar 
+      v-model="searchQuery"
+      :isSearchMode="isSearchMode"
+      @search="handleSearch"
+      @clear="clearSearch"
+    />
     
-    <!-- 播放控制区域 -->
-    <div class="player-controls" v-if="currentSong || status.current_song">
-      <div class="song-info">
-        <h3>{{ songTitle }}</h3>
-        <div class="metadata-display" v-if="currentSong && currentSong.metadata">
-          <span v-if="currentSong.artist">艺术家: {{ currentSong.artist }}</span>
-          <span v-if="currentSong.album">专辑: {{ currentSong.album }}</span>
-        </div>
-      </div>
-      
-      <!-- 进度条 -->
-      <div class="progress-bar">
-        <span class="time">{{ formatTime(status.position) }}</span>
-        <input 
-          type="range" 
-          min="0" 
-          :max="status.duration" 
-          v-model="sliderPosition"
-          @input="handleSliderInput"
-          @change="handleSliderChange"
-          class="progress-slider"
-        />
-        <span class="time">{{ formatTime(status.duration) }}</span>
-      </div>
-      
-      <!-- 控制按钮 -->
-      <div class="control-buttons">
-        <button @click="handleLoop" :class="{ active: status.loop }" class="loop-btn">
-          {{ status.loop ? '循环开' : '循环关' }}
-        </button>
-        <button @click="playPrevious" class="control-btn">上一首</button>
-        <button @click="handlePlayPause" class="control-btn main-btn">
-          {{ status.playing ? '暂停' : '播放' }}
-        </button>
-        <button @click="stopPlayback" class="control-btn">停止</button>
-        <button @click="playNext" class="control-btn">下一首</button>
-      </div>
-      
-      <!-- 音量控制 -->
-      <div class="volume-control">
-        <span>音量:</span>
-        <input 
-          type="range" 
-          min="0" 
-          max="1" 
-          step="0.01"
-          v-model="volumeLevel"
-          @input="handleVolumeStart"
-          @change="handleVolumeChange"
-          class="volume-slider"
-        />
-      </div>
-    </div>
+    <!-- 播放控制区域组件 -->
+    <PlayerControls 
+      v-if="currentSong || status.current_song"
+      :status="status"
+      :currentSong="currentSong"
+      :songTitle="songTitle"
+      :sliderPosition="sliderPosition"
+      :volumeLevel="volumeLevel"
+      @play-pause="handlePlayPause"
+      @stop="stopPlayback"
+      @previous="playPrevious"
+      @next="playNext"
+      @seek-input="handleSliderInput"
+      @seek-change="handleSliderChange"
+      @volume-start="handleVolumeStart"
+      @volume-change="handleVolumeChange"
+      @loop-toggle="handleLoop"
+    />
     
-    <!-- 播放列表 -->
-    <div class="playlist">
-      <div class="playlist-header">
-        <h2>{{ isSearchMode ? '搜索结果' : '播放列表' }}</h2>
-        <div class="playlist-controls">
-          <button @click="refreshLibrary" class="refresh-btn">刷新库</button>
-        </div>
-      </div>
-      
-      <div v-if="loading" class="loading-indicator">
-        加载中...
-      </div>
-      
-      <div v-else-if="isSearchMode && searchResults.length === 0" class="empty-list">
-        未找到匹配的音乐文件
-      </div>
-      
-      <div v-else-if="!isSearchMode && songs.length === 0" class="empty-list">
-        未找到音乐文件，请检查音乐库目录配置
-      </div>
-      
-      <ul v-else>
-        <li 
-          v-for="song in displayedSongs" 
-          :key="song.id"
-          :class="{ 
-            active: status.current_song === song.name,
-            'has-metadata': song.metadata
-          }"
-          @click="playSong(song)"
-        >
-          <div class="song-item">
-            <div class="song-main-info">
-              <span class="song-name">{{ song.title || song.name }}</span>
-              <span v-if="song.metadata && song.metadata.artist" class="song-artist">
-                {{ song.metadata.artist }}
-              </span>
-            </div>
-            <div class="song-extra-info">
-              <span v-if="song.metadata && song.metadata.duration" class="song-duration">
-                {{ formatTime(song.metadata.duration) }}
-              </span>
-              <span class="song-size">{{ (song.size).toFixed(2) }} MB</span>
-            </div>
-          </div>
-        </li>
-      </ul>
-      
-      <!-- 搜索模式下显示结果数 -->
-      <div class="search-info" v-if="isSearchMode">
-        找到 {{ searchResults.length }} 个匹配结果
-      </div>
-    </div>
+    <!-- 播放列表组件 -->
+    <PlayList
+      :loading="loading"
+      :isSearchMode="isSearchMode"
+      :searchResults="searchResults"
+      :songs="songs"
+      :displayedSongs="displayedSongs"
+      :status="status"
+      @play="playSong"
+      @refresh="refreshLibrary"
+    />
   </div>
 </template>
 
@@ -127,8 +46,18 @@ import { defineComponent, ref, computed, onMounted, onUnmounted } from 'vue';
 import { apiService } from '../api';
 import type { Song, PlaybackStatus } from '../api';
 
+// 导入子组件
+import SearchBar from './music-player/SearchBar.vue';
+import PlayerControls from './music-player/PlayerControls.vue';
+import PlayList from './music-player/PlayList.vue';
+
 export default defineComponent({
   name: 'MusicPlayer',
+  components: {
+    SearchBar,
+    PlayerControls,
+    PlayList
+  },
   setup() {
     // 状态数据
     const songs = ref<Song[]>([]);
@@ -396,15 +325,6 @@ export default defineComponent({
       }
     };
     
-    // 格式化时间
-    const formatTime = (seconds: number): string => {
-      if (isNaN(seconds) || seconds === 0) return '00:00';
-      
-      const min = Math.floor(seconds / 60);
-      const sec = Math.floor(seconds % 60);
-      return `${min.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
-    };
-    
     // 组件挂载时加载数据并启动状态更新
     onMounted(async () => {
       await fetchSongs();
@@ -441,7 +361,6 @@ export default defineComponent({
       handleVolumeStart,
       handleVolumeChange,
       handleLoop,
-      formatTime,
       handleSearch,
       clearSearch,
       refreshLibrary
@@ -462,248 +381,5 @@ h1 {
   text-align: center;
   color: #333;
   margin-bottom: 30px;
-}
-
-h2 {
-  color: #444;
-  margin-top: 0;
-  margin-bottom: 15px;
-}
-
-.search-bar {
-  margin-bottom: 20px;
-  display: flex;
-  gap: 10px;
-}
-
-.search-bar input {
-  flex: 1;
-  padding: 8px 12px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  font-size: 14px;
-}
-
-.search-btn {
-  padding: 8px 15px;
-  background-color: #2196F3;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.clear-btn {
-  padding: 8px 15px;
-  background-color: #f44336;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.player-controls {
-  background-color: #f9f9f9;
-  border-radius: 8px;
-  padding: 20px;
-  margin-bottom: 30px;
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
-}
-
-.song-info {
-  text-align: center;
-  margin-bottom: 15px;
-}
-
-.song-info h3 {
-  margin-bottom: 5px;
-}
-
-.metadata-display {
-  font-size: 14px;
-  color: #666;
-  display: flex;
-  justify-content: center;
-  gap: 15px;
-}
-
-.progress-bar {
-  display: flex;
-  align-items: center;
-  margin-bottom: 20px;
-}
-
-.time {
-  min-width: 45px;
-  text-align: center;
-  font-size: 14px;
-  color: #777;
-}
-
-.progress-slider {
-  flex: 1;
-  margin: 0 10px;
-  height: 5px;
-}
-
-.control-buttons {
-  display: flex;
-  justify-content: center;
-  gap: 10px;
-  margin-bottom: 20px;
-}
-
-.control-btn {
-  padding: 8px 15px;
-  border: none;
-  border-radius: 4px;
-  background-color: #2196F3;
-  color: white;
-  cursor: pointer;
-}
-
-.control-btn:hover {
-  background-color: #0b7dda;
-}
-
-.main-btn {
-  font-weight: bold;
-  padding: 8px 25px;
-}
-
-.loop-btn {
-  padding: 8px 15px;
-  border: none;
-  border-radius: 4px;
-  background-color: #9e9e9e;
-  color: white;
-  cursor: pointer;
-}
-
-.loop-btn.active {
-  background-color: #4caf50;
-}
-
-.volume-control {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  justify-content: center;
-}
-
-.volume-slider {
-  width: 100px;
-}
-
-.playlist {
-  background-color: #fff;
-  border-radius: 8px;
-  padding: 20px;
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
-}
-
-.playlist-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 15px;
-  border-bottom: 1px solid #eee;
-  padding-bottom: 10px;
-}
-
-.playlist-controls {
-  display: flex;
-  gap: 10px;
-}
-
-.refresh-btn {
-  padding: 5px 10px;
-  background-color: #4caf50;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.empty-list {
-  text-align: center;
-  padding: 20px;
-  color: #777;
-  font-style: italic;
-}
-
-.loading-indicator {
-  text-align: center;
-  padding: 20px;
-  color: #2196F3;
-  font-weight: bold;
-}
-
-ul {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  max-height: 400px;
-  overflow-y: auto;
-}
-
-li {
-  border-bottom: 1px solid #eee;
-  transition: background-color 0.2s;
-  cursor: pointer;
-}
-
-li:hover {
-  background-color: #f5f5f5;
-}
-
-li.active {
-  background-color: #e3f2fd;
-}
-
-.song-item {
-  padding: 12px 15px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.song-main-info {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-}
-
-.song-name {
-  font-weight: 500;
-}
-
-.song-artist {
-  font-size: 12px;
-  color: #777;
-  margin-top: 3px;
-}
-
-.song-extra-info {
-  display: flex;
-  gap: 15px;
-  align-items: center;
-}
-
-.song-duration {
-  color: #555;
-  font-size: 13px;
-}
-
-.song-size {
-  color: #888;
-  font-size: 12px;
-}
-
-.search-info {
-  text-align: center;
-  margin-top: 20px;
-  font-size: 14px;
-  color: #555;
 }
 </style> 
