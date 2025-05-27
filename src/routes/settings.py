@@ -14,7 +14,7 @@ from src.config.settings_manager import (
 import src.config.settings
 from src.utils.file_utils import scan_music_library, clear_cache
 
-router = APIRouter(prefix="/settings", tags=["settings"])
+router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 class MusicLibraryRequest(BaseModel):
     """音乐库目录列表请求模型"""

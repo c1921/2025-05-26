@@ -1,10 +1,25 @@
 <template>
   <div class="music-player">
+    <!-- 搜索栏 -->
+    <div class="search-bar">
+      <input 
+        type="text" 
+        v-model="searchQuery" 
+        placeholder="搜索歌曲、艺术家或专辑..." 
+        @keyup.enter="handleSearch"
+      />
+      <button class="search-btn" @click="handleSearch">搜索</button>
+      <button class="clear-btn" @click="clearSearch" v-if="isSearchMode">清除</button>
+    </div>
     
     <!-- 播放控制区域 -->
     <div class="player-controls" v-if="currentSong || status.current_song">
       <div class="song-info">
-        <h3>{{ currentSong?.name || status.current_song }}</h3>
+        <h3>{{ songTitle }}</h3>
+        <div class="metadata-display" v-if="currentSong && currentSong.metadata">
+          <span v-if="currentSong.artist">艺术家: {{ currentSong.artist }}</span>
+          <span v-if="currentSong.album">专辑: {{ currentSong.album }}</span>
+        </div>
       </div>
       
       <!-- 进度条 -->
@@ -53,29 +68,62 @@
     
     <!-- 播放列表 -->
     <div class="playlist">
-      <h2>播放列表</h2>
-      <div v-if="songs.length === 0" class="empty-list">
+      <div class="playlist-header">
+        <h2>{{ isSearchMode ? '搜索结果' : '播放列表' }}</h2>
+        <div class="playlist-controls">
+          <button @click="refreshLibrary" class="refresh-btn">刷新库</button>
+        </div>
+      </div>
+      
+      <div v-if="loading" class="loading-indicator">
+        加载中...
+      </div>
+      
+      <div v-else-if="isSearchMode && searchResults.length === 0" class="empty-list">
+        未找到匹配的音乐文件
+      </div>
+      
+      <div v-else-if="!isSearchMode && songs.length === 0" class="empty-list">
         未找到音乐文件，请检查音乐库目录配置
       </div>
+      
       <ul v-else>
         <li 
-          v-for="song in songs" 
+          v-for="song in displayedSongs" 
           :key="song.id"
-          :class="{ active: status.current_song === song.name }"
+          :class="{ 
+            active: status.current_song === song.name,
+            'has-metadata': song.metadata
+          }"
           @click="playSong(song)"
         >
           <div class="song-item">
-            <span class="song-name">{{ song.name }}</span>
-            <span class="song-size">{{ (song.size).toFixed(2) }} MB</span>
+            <div class="song-main-info">
+              <span class="song-name">{{ song.title || song.name }}</span>
+              <span v-if="song.metadata && song.metadata.artist" class="song-artist">
+                {{ song.metadata.artist }}
+              </span>
+            </div>
+            <div class="song-extra-info">
+              <span v-if="song.metadata && song.metadata.duration" class="song-duration">
+                {{ formatTime(song.metadata.duration) }}
+              </span>
+              <span class="song-size">{{ (song.size).toFixed(2) }} MB</span>
+            </div>
           </div>
         </li>
       </ul>
+      
+      <!-- 搜索模式下显示结果数 -->
+      <div class="search-info" v-if="isSearchMode">
+        找到 {{ searchResults.length }} 个匹配结果
+      </div>
     </div>
   </div>
 </template>
 
 <script lang="ts">
-import { defineComponent, ref, onMounted } from 'vue';
+import { defineComponent, ref, computed, onMounted, onUnmounted } from 'vue';
 import { apiService } from '../api';
 import type { Song, PlaybackStatus } from '../api';
 
@@ -84,6 +132,7 @@ export default defineComponent({
   setup() {
     // 状态数据
     const songs = ref<Song[]>([]);
+    const searchResults = ref<Song[]>([]);
     const status = ref<PlaybackStatus>({
       active: false,
       playing: false,
@@ -99,12 +148,82 @@ export default defineComponent({
     const statusInterval = ref<number | null>(null);
     const isVolumeUserControlled = ref(false); // 标记音量是否被用户手动调整
     
+    // 加载状态
+    const loading = ref(false);
+    
+    // 搜索相关状态
+    const searchQuery = ref('');
+    const isSearchMode = ref(false);
+    
+    // 计算属性：当前显示的歌曲列表
+    const displayedSongs = computed(() => {
+      return isSearchMode.value ? searchResults.value : songs.value;
+    });
+    
+    // 计算属性：歌曲标题（优先使用元数据的标题）
+    const songTitle = computed(() => {
+      if (currentSong.value && currentSong.value.title) {
+        return currentSong.value.title;
+      }
+      return currentSong.value?.name || status.value.current_song || '';
+    });
+    
     // 获取歌曲列表
     const fetchSongs = async () => {
+      loading.value = true;
       try {
-        songs.value = await apiService.getSongs();
+        songs.value = await apiService.getSongs(true); // 包含元数据
       } catch (error) {
         console.error('获取歌曲列表失败:', error);
+        songs.value = [];
+      } finally {
+        loading.value = false;
+      }
+    };
+    
+    // 搜索歌曲
+    const handleSearch = async () => {
+      if (!searchQuery.value.trim()) {
+        clearSearch();
+        return;
+      }
+      
+      loading.value = true;
+      isSearchMode.value = true;
+      
+      try {
+        const result = await apiService.searchSongs(searchQuery.value);
+        searchResults.value = result.items;
+      } catch (error) {
+        console.error('搜索歌曲失败:', error);
+        searchResults.value = [];
+      } finally {
+        loading.value = false;
+      }
+    };
+    
+    // 清除搜索，返回全部歌曲列表
+    const clearSearch = () => {
+      searchQuery.value = '';
+      searchResults.value = [];
+      isSearchMode.value = false;
+    };
+    
+    // 刷新音乐库
+    const refreshLibrary = async () => {
+      loading.value = true;
+      try {
+        // 开始异步扫描
+        await apiService.startLibraryScan(true);
+        
+        // 等待2秒后重新加载歌曲列表
+        setTimeout(() => {
+          fetchSongs();
+        }, 2000);
+      } catch (error) {
+        console.error('刷新音乐库失败:', error);
+      } finally {
+        loading.value = false;
       }
     };
     
@@ -132,7 +251,9 @@ export default defineComponent({
           if (status.value.current_song) {
             // 使用解码后的文件名进行比较
             const songName = status.value.current_song;
-            currentSong.value = songs.value.find(song => song.name === songName) || null;
+            
+            // 在显示的歌曲中查找
+            currentSong.value = displayedSongs.value.find(song => song.name === songName) || null;
             
             // 如果找不到匹配的歌曲，可能是因为编码问题，则创建一个临时歌曲对象
             if (!currentSong.value) {
@@ -176,9 +297,9 @@ export default defineComponent({
     // 处理播放/暂停
     const handlePlayPause = async () => {
       try {
-        if (!status.value.active && songs.value.length > 0) {
+        if (!status.value.active && displayedSongs.value.length > 0) {
           // 如果没有激活的歌曲，播放第一首
-          await playSong(songs.value[0]);
+          await playSong(displayedSongs.value[0]);
         } else if (status.value.playing) {
           await apiService.pauseSong();
         } else {
@@ -203,28 +324,32 @@ export default defineComponent({
     
     // 播放下一首
     const playNext = async () => {
-      if (songs.value.length === 0) return;
+      if (displayedSongs.value.length === 0) return;
       
       let nextIndex = 0;
       if (currentSong.value) {
-        const currentIndex = songs.value.findIndex(song => song.id === currentSong.value?.id);
-        nextIndex = (currentIndex + 1) % songs.value.length;
+        const currentIndex = displayedSongs.value.findIndex(song => song.id === currentSong.value?.id);
+        if (currentIndex !== -1) {
+          nextIndex = (currentIndex + 1) % displayedSongs.value.length;
+        }
       }
       
-      await playSong(songs.value[nextIndex]);
+      await playSong(displayedSongs.value[nextIndex]);
     };
     
     // 播放上一首
     const playPrevious = async () => {
-      if (songs.value.length === 0) return;
+      if (displayedSongs.value.length === 0) return;
       
-      let prevIndex = songs.value.length - 1;
+      let prevIndex = displayedSongs.value.length - 1;
       if (currentSong.value) {
-        const currentIndex = songs.value.findIndex(song => song.id === currentSong.value?.id);
-        prevIndex = (currentIndex - 1 + songs.value.length) % songs.value.length;
+        const currentIndex = displayedSongs.value.findIndex(song => song.id === currentSong.value?.id);
+        if (currentIndex !== -1) {
+          prevIndex = (currentIndex - 1 + displayedSongs.value.length) % displayedSongs.value.length;
+        }
       }
       
-      await playSong(songs.value[prevIndex]);
+      await playSong(displayedSongs.value[prevIndex]);
     };
     
     // 处理进度条输入
@@ -288,20 +413,24 @@ export default defineComponent({
     });
     
     // 组件卸载时清除定时器
-    onMounted(() => {
-      return () => {
-        if (statusInterval.value) {
-          clearInterval(statusInterval.value);
-        }
-      };
+    onUnmounted(() => {
+      if (statusInterval.value) {
+        clearInterval(statusInterval.value);
+      }
     });
     
     return {
       songs,
+      searchResults,
       status,
       currentSong,
       sliderPosition,
       volumeLevel,
+      loading,
+      searchQuery,
+      isSearchMode,
+      displayedSongs,
+      songTitle,
       playSong,
       handlePlayPause,
       stopPlayback,
@@ -312,7 +441,10 @@ export default defineComponent({
       handleVolumeStart,
       handleVolumeChange,
       handleLoop,
-      formatTime
+      formatTime,
+      handleSearch,
+      clearSearch,
+      refreshLibrary
     };
   }
 });
@@ -334,9 +466,40 @@ h1 {
 
 h2 {
   color: #444;
-  border-bottom: 1px solid #eee;
-  padding-bottom: 10px;
-  margin-top: 30px;
+  margin-top: 0;
+  margin-bottom: 15px;
+}
+
+.search-bar {
+  margin-bottom: 20px;
+  display: flex;
+  gap: 10px;
+}
+
+.search-bar input {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.search-btn {
+  padding: 8px 15px;
+  background-color: #2196F3;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.clear-btn {
+  padding: 8px 15px;
+  background-color: #f44336;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
 }
 
 .player-controls {
@@ -350,6 +513,18 @@ h2 {
 .song-info {
   text-align: center;
   margin-bottom: 15px;
+}
+
+.song-info h3 {
+  margin-bottom: 5px;
+}
+
+.metadata-display {
+  font-size: 14px;
+  color: #666;
+  display: flex;
+  justify-content: center;
+  gap: 15px;
 }
 
 .progress-bar {
@@ -406,14 +581,14 @@ h2 {
 }
 
 .loop-btn.active {
-  background-color: #ff9800;
+  background-color: #4caf50;
 }
 
 .volume-control {
   display: flex;
   align-items: center;
-  justify-content: center;
   gap: 10px;
+  justify-content: center;
 }
 
 .volume-slider {
@@ -421,43 +596,33 @@ h2 {
 }
 
 .playlist {
-  margin-top: 20px;
+  background-color: #fff;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
 }
 
-.playlist ul {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-}
-
-.playlist li {
-  padding: 10px;
-  border-bottom: 1px solid #eee;
-  cursor: pointer;
-}
-
-.playlist li:hover {
-  background-color: #f5f5f5;
-}
-
-.playlist li.active {
-  background-color: #e3f2fd;
-}
-
-.song-item {
+.playlist-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  margin-bottom: 15px;
+  border-bottom: 1px solid #eee;
+  padding-bottom: 10px;
 }
 
-.song-name {
-  flex: 1;
+.playlist-controls {
+  display: flex;
+  gap: 10px;
 }
 
-.song-size {
-  color: #777;
-  margin-right: 10px;
-  font-size: 14px;
+.refresh-btn {
+  padding: 5px 10px;
+  background-color: #4caf50;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
 }
 
 .empty-list {
@@ -465,5 +630,80 @@ h2 {
   padding: 20px;
   color: #777;
   font-style: italic;
+}
+
+.loading-indicator {
+  text-align: center;
+  padding: 20px;
+  color: #2196F3;
+  font-weight: bold;
+}
+
+ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+li {
+  border-bottom: 1px solid #eee;
+  transition: background-color 0.2s;
+  cursor: pointer;
+}
+
+li:hover {
+  background-color: #f5f5f5;
+}
+
+li.active {
+  background-color: #e3f2fd;
+}
+
+.song-item {
+  padding: 12px 15px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.song-main-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.song-name {
+  font-weight: 500;
+}
+
+.song-artist {
+  font-size: 12px;
+  color: #777;
+  margin-top: 3px;
+}
+
+.song-extra-info {
+  display: flex;
+  gap: 15px;
+  align-items: center;
+}
+
+.song-duration {
+  color: #555;
+  font-size: 13px;
+}
+
+.song-size {
+  color: #888;
+  font-size: 12px;
+}
+
+.search-info {
+  text-align: center;
+  margin-top: 20px;
+  font-size: 14px;
+  color: #555;
 }
 </style> 
